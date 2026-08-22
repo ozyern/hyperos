@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
-# SELinux config synthesis helper (called by port.sh). Generates
-# fs_config / file_contexts entries for moved/overlaid files, inheriting each
-# label from the nearest parent directory.
+# Shared SELinux config synthesis for the porter (used by both port.py and
+# port.sh). erofs fs_config / file_contexts entries have to be generated for
+# every file that gets moved in or overlaid, and the SELinux label is inherited
+# from the nearest parent directory that already has a context. Doing that
+# gap-fill with nested dicts is the one part that is genuinely nicer in Python
+# than in awk, so the Bash driver shells out to this for it.
+#
+# CLI:
 #   erofs_config.py sync <work> <part>
 #   erofs_config.py set  <work> <part> <rel> <label> [mode]
 

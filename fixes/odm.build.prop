@@ -1,6 +1,3 @@
-# Xiaomi attestation block (palaziks).
-ro.product.odm.brand=Xiaomi
-ro.product.odm.manufacturer=Xiaomi
-ro.product.odm.marketname=一加 13
-ro.product.brand_for_attestation=Xiaomi
-ro.product.manufacturer_for_attestation=Xiaomi
+# OnePlus 9 Pro ODM overrides.
+# Intentionally empty: do not copy the original OnePlus 13/Xiaomi attestation
+# spoof into the OnePlus 9 Pro stock ODM.

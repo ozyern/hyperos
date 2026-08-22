@@ -10,3 +10,21 @@ RES/product/priv-app/MiuiCamera/
 
 # local AI/dev context
 CLAUDE.md
+
+# build pipeline outputs and caches
+out_hos/
+work_cos/
+cos_img/
+cos_stock/
+cos_passthru/
+stub_work/
+stubs/
+known-good/
+apps/
+tmp/
+*.bak
+*.pre-pkg
+
+# local apk toolchain (aapt2/apktool/build-tools) and the signing key
+tools/apk/
+*.keystore

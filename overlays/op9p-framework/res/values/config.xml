@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- lemonadep's camera is top-left; the donor (ishtar) is centre.
+         Coordinates are relative to display centre on the 1440-wide panel,
+         so -720 is x=0. Taken from ColorOS's own odm overlay. -->
+    <string name="config_mainBuiltInDisplayCutout" translatable="false">M -720,0 L -720,128 L -500,128 L -500,0 Z</string>
+
+    <!-- Panel is 120 Hz; HyperOS defaults these to 60, which is why
+         peak_refresh_rate resolved to 60 on a wiped userdata. -->
+    <integer name="config_defaultRefreshRate">120</integer>
+    <integer name="config_defaultPeakRefreshRate">120</integer>
+
+    <!-- Display reports RoundedCorners radius=105px. -->
+    <dimen name="rounded_corner_radius">105px</dimen>
+    <dimen name="rounded_corner_radius_top">105px</dimen>
+    <dimen name="rounded_corner_radius_bottom">105px</dimen>
+</resources>

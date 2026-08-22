@@ -1,5 +1,3 @@
-# density (palaziks)
-persist.miui.density_v2=600
-ro.sf.lcd_density=600
-# status bar tint fix (palaziks)
-debug.layered.strategy.phone=99
+# OnePlus 9 Pro product overrides.
+# Density is handled dynamically by port.py (--density or stock auto-detection).
+# Keep this file for small verified HyperOS framework-side properties.

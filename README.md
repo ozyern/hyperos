@@ -1,186 +1,100 @@
-# HyperOS port for OnePlus
+# HyperOS → OnePlus 9 Pro (lemonadep) fastboot ROM builder
 
-An auto-porter that builds a HyperOS ROM for OnePlus phones. It supports
-**HyperOS 2, 3 and 4** as the donor and combines it with a OnePlus stock ROM:
+Builds a fastboot-flashable `super.img` that boots HyperOS 3 on a OnePlus 9 Pro,
+by pairing a HyperOS donor's **system side** with a ColorOS 16 **hardware side**.
 
-- `vendor` and `odm` come from the **OnePlus stock ROM**, so the hardware stack
-  stays OnePlus.
-- `system`, `system_ext` and `product` come from the **HyperOS donor**, with
-  `mi_ext` merged in.
+Confirmed booting 2026-08-21: ishtar (Xiaomi 13 Ultra) donor + ColorOS 16
+vendor/odm/boot chain.
 
-The output is an uncompressed zip containing `system.img`, `system_ext.img`,
-`product.img`, `vendor.img` and `odm.img`.
+## Build
 
-It runs the same way locally or from GitHub Actions. The device-specific values
-(FOD geometry, resolution, density, marketname, camera) live in `devices/`, so
-adding a device is a config file, not a code change.
+    ./make_rom.sh <brinaos-ota.zip|IMAGES-dir> <hyperos-donor.zip|dir>
+    ./make_rom.sh                    # same, using the built-in defaults
+    SKIP_PORT=1 ./make_rom.sh        # repack super only, after editing work_cos/
+    EXTRACT_ONLY=1 ./make_rom.sh ... # just fill the input cache, build nothing
 
-> **Disclaimer:** use this at your own risk. I am **not responsible** for any
-> issues, data loss, or bricked phones that result from flashing these builds.
-> Keep a working recovery/fastboot path and a backup before you flash.
+Two zips in, ROM out, same as `sudo ./brina.sh <base.zip> <donor.zip>`:
 
-## Supported Devices
+    ./make_rom.sh /home/brina/BrinaOS/out/16.0.9.403/ota_full-LE2123_*.zip                   /home/brina/13.zip
 
-| Device | Codename | Status |
-|--------|----------|--------|
-| **OnePlus 13** | `PJZ110` | ✅ Fully Supported |
-| **OnePlus 15** | `PLK110` | ⚠️ Supported but untested |
+Arg 1 must be BrinaOS's OWN output, not a stock OnePlus OTA -- the port needs
+the ColorOS 16 vendor/odm/my_* that BrinaOS built. Its `ota_full` zip carries
+all of that plus the whole boot chain, so one file is the entire hardware side
+and the flasher's `-FwDir`; `make_rom.sh` prints the path to use. BrinaOS's
+`out/target/product/OnePlus9Pro/IMAGES` dir works too and skips the extraction.
 
-## Requirements
+A zip is unpacked once into `cos_img/<name>/` and reused on later runs (a
+`.complete` stamp guards against a half-extracted cache). No sudo anywhere:
+mkfs.erofs takes ownership and labels from --fs-config-file.
 
-Linux x86_64.
+### Output layout
 
-```bash
-./requirements.sh
-```
+Every build gets its own folder and `out_hos/latest` points at the newest:
 
-This installs the dependencies on Arch, Debian, Ubuntu and Fedora and fetches
-`payload-dumper-rust`. If it can't be fetched, the porter falls back to a
-built-in Python payload extractor, so it still works offline.
+    out_hos/run-1/super.img
+    out_hos/run-2/super.img
+    out_hos/latest -> run-2
 
-## Local build
+So a fresh run can never overwrite the last super.img you know boots.
+`SKIP_PORT=1` repacks the newest run in place rather than starting a new one.
 
-```bash
-./port.sh --device OnePlus13 --stock <oneplus-stock> --hyperos <hyperos-rom>
-```
+### Cleanup
 
-`--device` is required (a folder name under `devices/`, e.g. `OnePlus13` or `OnePlus15`).
-`--stock` and `--hyperos` accept a URL, an OTA/fastboot/recovery zip, a
-`payload.bin`, or a directory of raw `.img` files. The finished zip lands in
-`out/`.
+Like BrinaOS, the script wipes its work dirs at the top of each run -- but only
+after the inputs validate, so a typo'd path can't destroy the previous build.
+Wiped: `work_cos`, `cos_stock`, `cos_passthru`, `stub_work`, `stubs`. Kept:
+`cos_img/` (the expensive extracted-input cache) and every `out_hos/run-N/`.
+Old runs are never pruned automatically -- delete them yourself; each holds
+~6 GB of images plus an 11 GB super.
 
-Options:
+Overridable: `COS` (ColorOS IMAGES dir), `DONOR` (donor images), `WORK`, `OUT`, `SLOT`.
 
-```text
---device <name>       target device (required): OnePlus13, OnePlus15
---name <basename>     output zip basename (default: HyperOS-<device>-port)
---out <dir>           output directory (default: out)
---work <dir>          working directory (default: work)
---res <dir>           overlay directory (default: RES)
---keep-work           keep the working tree instead of cleaning it up
-```
+    ./vet_donor.sh <donor.zip>    # check a donor BEFORE a full build
 
-`port.sh` is the entry point. It's mostly Bash, and calls small Python helpers
-under `lib/` for the parts that are cleaner in Python — SELinux config synthesis
-(`lib/erofs_config.py`), the payload fallback (`lib/payload_extractor.py`) and
-the Google Drive download (`lib/gdrive.py`).
+## Flash (from Windows — WSL has no USB)
 
-## GitHub Actions
+    windows/flash-op9p.ps1 -Super <out_hos\super.img> -FwDir <ColorOS IMAGES> -Slot b
 
-1. Fork this repo.
-2. For the automatic pixeldrain upload, add your key under **Settings → Secrets
-   and variables → Actions** as `PIXELDRAIN_API_KEY`.
-3. Open the **Actions** tab, pick **Build HyperOS for OnePlus**, and **Run
-   workflow**.
-4. Choose the **device**, then paste the OnePlus stock ROM link and the HyperOS
-   link.
+Add `-SuperOnly` **only** when the device already carries a matching boot chain.
+`windows/capture.sh` pulls logcat, crash buffer, `avc: denied` and tombstones
+from a device stuck in a bootloop.
 
-The finished zip is attached to the run as an artifact. The **Upload to
-pixeldrain** toggle (on by default) also uploads it and prints a share link; if
-the secret is missing or the upload fails, the build still succeeds.
+## Two things that will bite you
 
-## Adding a device
+**1. The boot chain must match the firmware already on the device.**
+`abl`, `tz`, `hyp`, `keymaster` and friends refuse fastboot writes
+("Flashing is not allowed for Critical Partitions"), and `flashing unlock_critical`
+is a no-op. So `boot`/`dtbo`/`vendor_boot`/`vbmeta`/`super` must all come from the
+same build as that fixed firmware. A mismatch gives splash → fastboot and looks
+exactly like an AVB rejection. Check what the phone actually runs before flashing.
+Tell-tale: OOS14 `dtbo` is 25.1 MB, ColorOS 16 `dtbo` is 4.79 MB.
 
-Each device is a folder under `devices/<name>/`:
+**2. `ro.product.cpu.abilist32` must be empty** (`port.py:apply_zygote_abi_fix`).
+The vendor advertises 32-bit ABIs but `ro.zygote=zygote64` starts only one zygote,
+so `/dev/socket/zygote_secondary` never exists. If the donor leaves
+`ro.system.product.cpu.abilist32` empty the vendor's value wins, and `system_server`
+spins forever on `Got error connecting to zygote ... No such file or directory` —
+bootanimation restarts every few seconds, kernel still up. An empty `abilist32`
+is the fix, not the bug; do not copy 32-bit values from a CN donor.
 
-```text
-devices/OnePlus13/
-  device.conf                                 # scalar values (below)
-  device_features.xml                         # copied to <ro.product.device>.xml
-  displayconfig/display_id_<panelid>.xml      # brightness / refresh / density map
-```
+Not the problem, both ruled out with evidence: SELinux (enforcing, zero denials)
+and VNDK (the donor already ships `com.android.vndk.v30.apex`).
 
-`device.conf`:
+## Layout
 
-```ini
-name=OnePlus 13
-model=PJZ110
-status=Fully Supported
-density=600
-miui_resolution=1440,3168,480
-fod_location=628,2200
-fod_size=184,184
-fod_target=616,2388,824,2616
-marketname=一加 13
-camera_gdrive_id=<google drive id of that device's MiuiCamera.zip>
-```
+    port.py           donor system side + stock vendor/odm -> 5 EROFS images
+                      applies the ABI fix and (default) ro.debuggable=1
+    make_rom.sh       one-command driver: port -> my_stock skeleton -> super
+    build_super.sh    lpmake packer (OP9P geometry, virtual A/B, 11190403072 B)
+    verify_super.py   parse and sanity-check LP metadata
+    vet_donor.sh      donor triage: 32-bit runtime, VNDK apexes, hwservicemanager
+    fixes/            build.prop fragments (only system.build.prop is wired)
+    RES/              optional overlays copied into the ported tree
+    lib/ bin/ tools/  python deps, erofs tools, lpmake
 
-The porter overlays the folder's `displayconfig` and `device_features.xml` (the
-latter renamed to the port's detected `ro.product.device`), then writes the
-scalar values into the right build.props (FOD, density and resolution) and the
-odm attestation (marketname). To add a device, copy an existing folder and drop
-in that device's **verified** values — FOD coordinates and the displayconfig are
-panel-specific, and the displayconfig filename must be that device's real panel
-id (read it from a dump). Reusing another device's values is what "untested"
-means.
+`my_*` partitions are `first_stage_mount` **without** `nofail`, so every one must
+exist. `my_stock` is rebuilt as a skeleton (2.8 GB → ~221 KB) because the port
+does not otherwise fit in super; its `build.prop`/`etc`/`applist` are kept.
 
-## What it fixes
-
-A straight port of HyperOS onto a OnePlus boots with several things broken. This
-porter bakes in the fixes:
-
-- **Under-display fingerprint (FOD).** Adds the FOD geometry props, the
-  enrolment gate (`vendor.fingerprint.cali=1`), the fingerprint permission xml
-  labelled `vendor_configs_file`, and the SELinux property contexts so
-  system_server can read the props and the fingerprint HAL can set its own.
-  Without these there's no way to enrol, or enrolment dies with
-  `invalid cali data`.
-- **120 Hz.** Vendor display props plus the product refresh-rate config and
-  device-features flags.
-- **Brightness curve and boot hang.** A brightness map that starts above the
-  panel minimum makes the brightness spline blow up and the phone hang on the
-  boot animation. The bundled display config starts at the real panel minimum.
-- **Status bar icon tint.** `debug.layered.strategy.phone=99`.
-- **Camera.** The ported MiuiCamera is replaced with a working build, which the
-  porter downloads into `RES/` automatically (it's too big for git).
-
-Not fixed here: face-unlock enrolment freeze (needs `Settings.apk` edits) and
-slightly buggy fullscreen AOD.
-
-## Porting flow
-
-1. Extract OnePlus `vendor` and `odm` from the stock ROM.
-2. Extract HyperOS `system`, `system_ext`, `product` and `mi_ext`.
-3. Fold `mi_ext/product` into `product` and `mi_ext/system` into
-   `system/system`.
-4. Merge `mi_ext/etc/build.prop` into `product` and `system/system`, dropping
-   the huge `ro.vendor.build.ab_ota_partitions` line.
-5. Add MIUI home/dexopt props to `system/system/build.prop`.
-6. Tag `ro.mi.os.version.incremental`.
-7. Move `product/pangu/system` into `system/system`.
-8. Append the OnePlus vendor props (the `# end of file` block + FOD) to
-   `vendor/build.prop`.
-9. Add the Xiaomi attestation block to `odm/build.prop` and strip `import`
-   lines.
-10. Remove `ro.vendor.oplus.sensor.high_pwm_rgb`.
-11. Add the density and status-bar props to `product/etc/build.prop`.
-12. Delete `system_ext/priv-app/qcrilmsgtunnel` and the ported
-    `product/priv-app/MiuiCamera`.
-
-Then it applies the `RES/` overlays and the device overrides, regenerates the
-EROFS `fs_config` / `file_contexts`, repacks each partition, and writes the zip.
-
-## RES overlays
-
-`RES/` holds files copied over the assembled tree, mirroring the partition
-layout — `RES/product/...` goes into `product`, `RES/vendor/...` into `vendor`.
-After the copy, the SELinux metadata is regenerated for the new files (a file
-under `vendor/etc/permissions` correctly becomes `vendor_configs_file`). Line-
-based edits (build.prop props, SELinux property contexts) live in `fixes/` and
-are shared by both front-ends.
-
-## Credits
-
-- **MIO Kitchen** — the erofs and image tools in `bin/`.
-- **[payload-dumper-rust](https://github.com/rhythmcache/payload-dumper-rust)**
-  — payload extraction (reads the ROM zip directly).
-- **[XMAPort](https://github.com/NorthStarK-Lvy/XMAPort)** and
-  **[HyperOS-Port-Python](https://github.com/toraidl/HyperOS-Port-Python)** —
-  references for the porting flow.
-- **[tqmane](https://github.com/tqmane)** — for some help.
-
-Fixes worked out by palaziks. If you reuse them, keep the credit.
-
-## License
-
-GPLv3. See [LICENSE](LICENSE).
+`--no-debuggable` ships authenticated adb. Leave it on while porting: flashing
+wipes userdata, so there is no adb key and a boot failure is otherwise blind.
